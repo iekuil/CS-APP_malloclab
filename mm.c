@@ -47,7 +47,7 @@ team_t team = {
 /* macros from book */
 #define WSIZE		4
 #define DSIZE		8
-#define CHUNKSIZE	(1<<20)
+#define CHUNKSIZE	(1<<16)
 
 #define ALLOCATED	1
 #define FREE		0
@@ -141,7 +141,7 @@ void *mm_malloc(size_t size)
 	if ( size <= 4*WSIZE)
 		asize = 4*WSIZE;
 	else
-		asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
+		asize = DSIZE * ((size  + (DSIZE - 1)) / DSIZE);
 	//printf("mm_malloc(size:%u bytes)\n", size);
 	
 	if ((bp = find_fit(asize)) != NULL)
@@ -186,21 +186,22 @@ void *mm_realloc(void *ptr, size_t size)
     	void *oldptr = ptr;
     	void *newptr;
     	size_t copySize = GET_SIZE(HDRP(oldptr));
+	size_t refsize;
 
 	char tmp[12];
 	memcpy(tmp, oldptr, 8);
 	memcpy(tmp+8, oldptr+copySize-4-4, 4);
 	//printf("mm_realloc: old_size=%u; ", old_size);
 	if ( size <= 4*WSIZE)
-		size = 4*WSIZE;
+		refsize = 4*WSIZE;
 	else
-		size = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
+		refsize = DSIZE * ((size  + (DSIZE - 1)) / DSIZE);
     
     	mm_free(oldptr);
     	newptr = mm_malloc(size);
     	if (newptr == NULL)
       		return NULL;
-    	if (size >= copySize)
+    	if (refsize >= copySize)
 	{
 		memcpy(newptr, tmp, 8);
     		memcpy(newptr+8, oldptr+8, copySize-8-4-4);
@@ -358,7 +359,7 @@ static void place(void *bp, size_t asize)
 
 	int split_size = 0;
 	split_size = origin_size - asize;
-	if ( split_size >= 24 )	// the min size is 24 bytes( header=4, footer=4, pred_ptr=8, succ_ptr=8)
+	if ( split_size >= 16 )	// the min size is 16 bytes ( header = 4, footer = 4, predptr = 4, succptr = 4)
 	{
 		// now split the block
 		remove_lnode( bp);
