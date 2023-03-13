@@ -47,7 +47,7 @@ team_t team = {
 /* macros from book */
 #define WSIZE		4
 #define DSIZE		8
-#define CHUNKSIZE	(1<<16)
+#define CHUNKSIZE	(1<<12)
 
 #define ALLOCATED	1
 #define FREE		0
@@ -79,7 +79,9 @@ typedef struct link_node{
 }lnode;
 
 static void *heap_listp;	// point to the bp of prologue block
-static lnode* link_entry;	// point to the pointer array of link entry points
+static lnode *link_entry;	// point to the pointer array of link entry points
+
+static int check_counts = 1;
 
 static void *extend_heap(size_t words);
 static void *coalesce(void *bp);
@@ -88,6 +90,8 @@ static void place(void *bp, size_t asize);
 static int bit_counts(size_t size);
 static void insert_lnode(size_t size, void* bp);
 static void remove_lnode(void* bp);
+
+static void checker();
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -147,6 +151,7 @@ void *mm_malloc(size_t size)
 	if ((bp = find_fit(asize)) != NULL)
 	{
 		place(bp, asize);
+		//checker("mm_malloc");
 		//printf("mm_malloc(ptr:%x, size:%d bytes)\n",bp, size);
 		return bp;
 	}
@@ -156,6 +161,7 @@ void *mm_malloc(size_t size)
 		return NULL;
 	place(bp, asize);
 	//printf("mm_malloc(ptr:%x, size:%d bytes)\n",bp, size);
+	//checker("mm_malloc");
 	return bp;
 }
 
@@ -172,6 +178,7 @@ void mm_free(void *ptr)
 	PUT(FTRP(ptr), PACK(size, GET_PRI_ALLOC(HDRP(ptr)), FREE));
 	insert_lnode(size, ptr);
 	coalesce(ptr);
+	//checker("mm_free");
 }
 
 
@@ -183,6 +190,7 @@ void *mm_realloc(void *ptr, size_t size)
 	// allocate a new pointer
 	// copy the bytes to the new pointer
 	// free the old pointer
+	//printf("realloc ptr:%x, for %d bytes\n",ptr, size);
     	void *oldptr = ptr;
     	void *newptr;
     	size_t copySize = GET_SIZE(HDRP(oldptr));
@@ -213,6 +221,7 @@ void *mm_realloc(void *ptr, size_t size)
 		memcpy(newptr+8, oldptr+8, copySize-8-4);
 	}
 	//printf("%d.mm_realloc: new ptr is %x\n", count++, newptr);
+	//checker("mm_realloc");
     	return newptr;
 }
 
@@ -285,8 +294,8 @@ static void *coalesce(void *bp)
 		PUT(HDRP(pri), PACK(size, GET_PRI_ALLOC(HDRP(pri)), FREE));
 		PUT(FTRP(bp), PACK(size, GET_PRI_ALLOC(HDRP(pri)), FREE));
 	
-		bp = PREV_BLKP(bp);
-		insert_lnode(size, bp);
+		bp = pri;
+		insert_lnode(size, pri);
 	}
 	else
 	{
@@ -370,8 +379,13 @@ static void place(void *bp, size_t asize)
 		
 		lnode *split = (lnode*)NEXT_BLKP(bp);
 		insert_lnode(split_size, split);
-		PUT(HDRP(NEXT_BLKP(bp)), PACK(split_size, PRI_ALLOCATED, FREE));
+		PUT(HDRP(NEXT_BLKP(bp)), PACK(split_size, PRI_ALLOCATED, FREE));	// set header and footer of the split block
 		PUT(FTRP(NEXT_BLKP(bp)), PACK(split_size, PRI_ALLOCATED, FREE));
+
+		//lnode *next = (lnode*)NEXT_BLKP(bp);	// set the header and footer of the block behind the split block
+		//PUT(HDRP(next), PACK(GET_SIZE(HDRP(next)), PRI_FREE, GET_ALLOC(HDRP(next))));
+		//PUT(FTRP(next), PACK(GET_SIZE(HDRP(next)), PRI_FREE, GET_ALLOC(HDRP(next))));
+
 	}
 	else{
 		remove_lnode( bp);
@@ -382,6 +396,7 @@ static void place(void *bp, size_t asize)
 		// the header of next block records the status of current block. 
 		// need to modify it
 		PUT(HDRP(NEXT_BLKP(bp)), PACK(GET_SIZE(HDRP(NEXT_BLKP(bp))), PRI_ALLOCATED, GET_ALLOC(HDRP(NEXT_BLKP(bp)))));
+		//PUT(FTRP(NEXT_BLKP(bp)), PACK(GET_SIZE(HDRP(NEXT_BLKP(bp))), PRI_ALLOCATED, GET_ALLOC(HDRP(NEXT_BLKP(bp)))));
 	}	
 
 }
@@ -438,6 +453,36 @@ static void remove_lnode(void* bp)
 
 
 
+static void checker(char* str)
+{
+	void *max_heap_addr;
+	void *bp = heap_listp;
+	int count = 1;
+
+	printf("---------------checker called by %s, round %d ----------------\n",str, check_counts);
+	while ( 1 )
+	{
+
+		max_heap_addr = mem_heap_hi() + 1;
+		if ( bp >= max_heap_addr || GET_SIZE(HDRP(bp)) == 0)
+			break;
+		printf("\n-----block no.%d-----\n",count);
+		if ( GET_ALLOC(HDRP(bp)) == ALLOCATED )
+		{
+			printf("status: ALLOCATED\n");
+		}
+		else{
+			printf("status: FREE\n");
+		}
+		printf("size: %d\n", GET_SIZE(HDRP(bp)));
+		printf("header at %x, bp at %x, footer(if exist) at %x\n", HDRP(bp), bp, FTRP(bp));
+		printf("-----block no.%d-----\n", count);
+		count ++;
+		bp = NEXT_BLKP(bp);
+	}
+	printf("---------------checker called by %s, round %d ----------------\n",str,  check_counts ++ );
+
+}
 
 
 
