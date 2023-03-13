@@ -146,13 +146,10 @@ void *mm_malloc(size_t size)
 		asize = 4*WSIZE;
 	else
 		asize = DSIZE * ((size  + (DSIZE - 1)) / DSIZE);
-	//printf("mm_malloc(size:%u bytes)\n", size);
 	
 	if ((bp = find_fit(asize)) != NULL)
 	{
 		place(bp, asize);
-		//checker("mm_malloc");
-		//printf("mm_malloc(ptr:%x, size:%d bytes)\n",bp, size);
 		return bp;
 	}
 
@@ -160,8 +157,6 @@ void *mm_malloc(size_t size)
 	if ((bp = extend_heap(extendsize/WSIZE)) == NULL)
 		return NULL;
 	place(bp, asize);
-	//printf("mm_malloc(ptr:%x, size:%d bytes)\n",bp, size);
-	//checker("mm_malloc");
 	return bp;
 }
 
@@ -173,12 +168,11 @@ void mm_free(void *ptr)
 	// set the status to 0 in the header and footer
 	// call coalesce
 	size_t size = GET_SIZE(HDRP(ptr));
-	//printf("mm_free(ptr:%x, size:%d bytes)\n",ptr, size);	
 	PUT(HDRP(ptr), PACK(size, GET_PRI_ALLOC(HDRP(ptr)), FREE));
 	PUT(FTRP(ptr), PACK(size, GET_PRI_ALLOC(HDRP(ptr)), FREE));
+	PUT(HDRP(NEXT_BLKP(ptr)), PACK(GET_SIZE(HDRP(NEXT_BLKP(ptr))), PRI_FREE, GET_ALLOC(HDRP(NEXT_BLKP(ptr)))));
 	insert_lnode(size, ptr);
 	coalesce(ptr);
-	//checker("mm_free");
 }
 
 
@@ -191,117 +185,36 @@ void *mm_realloc(void *ptr, size_t size)
 	// copy the bytes to the new pointer
 	// free the old pointer
 	//printf("realloc ptr:%x, for %d bytes\n",ptr, size);
-    	void *oldptr = ptr;
-    	void *newptr;
-    	size_t old_size = GET_SIZE(HDRP(oldptr));
+    	void *old_ptr = ptr;
+    	void *new_ptr;
+	void *tmp_ptr;
+    	size_t old_size = GET_SIZE(HDRP(old_ptr));
 	size_t asize;
-	size_t fit_size;
-	size_t split_size;
-
-	size_t tmp1, tmp2, tmp3;
-	tmp1 = GET(oldptr);
-	tmp2 = GET(oldptr+4);
-	tmp3 = GET(oldptr+old_size-4-4);
-	//printf("mm_realloc: old_size=%u; ", old_size);
+	size_t copy_size;
+	
+	if ( ptr == NULL)
+		return mm_malloc(size);
+	if ( size == 0 )
+	{
+		mm_free(ptr);
+		return NULL;
+	}
+	tmp_ptr = mm_malloc(size);
 	if ( size <= 4*WSIZE)
 		asize = 4*WSIZE;
 	else
 		asize = DSIZE * ((size  + (DSIZE - 1)) / DSIZE);
-    
-    	mm_free(oldptr);
-	if ((newptr = find_fit(asize)) != NULL)
-	{
-		remove_lnode(newptr);
-    		if (asize >= old_size)
-		{
-			PUT(newptr, tmp1);
-			PUT(newptr+4, tmp2);
-    			memmove(newptr+8, oldptr+8, old_size-8-4-4);
-			PUT(newptr+old_size-4-4, tmp3);
-		}
-		else{
-			PUT(newptr, tmp1);
-			PUT(newptr+4, tmp2);
-			memmove(newptr+8, oldptr+8, asize-8-4);
-		}
-		fit_size = GET_SIZE(HDRP(newptr));
-		split_size = fit_size - asize;
-		
-		if ( split_size >= 16 )	// the min size is 16 bytes ( header = 4, footer = 4, predptr = 4, succptr = 4)
-		{
-			// now split the block
-			PUT(HDRP(newptr), PACK(asize, GET_PRI_ALLOC(HDRP(newptr)), ALLOCATED));
-		
-			lnode *split = (lnode*)NEXT_BLKP(newptr);
-			insert_lnode(split_size, split);
-			PUT(HDRP(NEXT_BLKP(newptr)), PACK(split_size, PRI_ALLOCATED, FREE));	// set header and footer of the split block
-			PUT(FTRP(NEXT_BLKP(newptr)), PACK(split_size, PRI_ALLOCATED, FREE));
-
-			lnode *next = (lnode*)NEXT_BLKP(split);	// set the header and footer of the block behind the split block
-			PUT(HDRP(next), PACK(GET_SIZE(HDRP(next)), PRI_FREE, GET_ALLOC(HDRP(next))));
-			//PUT(FTRP(next), PACK(GET_SIZE(HDRP(next)), PRI_FREE, GET_ALLOC(HDRP(next))));
-		}
-		else{
-			PUT(HDRP(newptr), PACK(fit_size, GET_PRI_ALLOC(HDRP(newptr)), ALLOCATED));
-			// the header of next block records the status of current block. 
-			// need to modify it
-			PUT(HDRP(NEXT_BLKP(newptr)), PACK(GET_SIZE(HDRP(NEXT_BLKP(newptr))), PRI_ALLOCATED, GET_ALLOC(HDRP(NEXT_BLKP(newptr)))));
-			//PUT(FTRP(NEXT_BLKP(bp)), PACK(GET_SIZE(HDRP(NEXT_BLKP(bp))), PRI_ALLOCATED, GET_ALLOC(HDRP(NEXT_BLKP(bp)))));
-		}	
-			//checker("mm_malloc");
-			//printf("mm_malloc(ptr:%x, size:%d bytes)\n",bp, size);
-			checker("mm_realloc");
-			return newptr;
-	}
-
-	size_t extendsize = MAX(asize, CHUNKSIZE);
-	if ((newptr = extend_heap(extendsize/WSIZE)) == NULL)
-		return NULL;
+	if ( asize >= old_size )
+		copy_size = old_size-4;
+	else
+		copy_size = asize-4;
 	
-	remove_lnode(newptr);
-    	if (asize >= old_size)
-	{
-		PUT(newptr, tmp1);
-		PUT(newptr+4, tmp2);
-    		memmove(newptr+8, oldptr+8, old_size-8-4-4);
-		PUT(newptr+old_size-4-4, tmp3);
-	}
-	else{
-		PUT(newptr, tmp1);
-		PUT(newptr+4, tmp2);
-		memmove(newptr+8, oldptr+8, asize-8-4);
-	}
-	fit_size = GET_SIZE(HDRP(newptr));
-	split_size = fit_size - asize;
-		
-	if ( split_size >= 16 )	// the min size is 16 bytes ( header = 4, footer = 4, predptr = 4, succptr = 4)
-	{
-		// now split the block
-		PUT(HDRP(newptr), PACK(asize, GET_PRI_ALLOC(HDRP(newptr)), ALLOCATED));
-	
-		
-		lnode *split = (lnode*)NEXT_BLKP(newptr);
-		insert_lnode(split_size, split);
-		PUT(HDRP(NEXT_BLKP(newptr)), PACK(split_size, PRI_ALLOCATED, FREE));	// set header and footer of the split block
-		PUT(FTRP(NEXT_BLKP(newptr)), PACK(split_size, PRI_ALLOCATED, FREE));
-
-		lnode *next = (lnode*)NEXT_BLKP(split);	// set the header and footer of the block behind the split block
-		PUT(HDRP(next), PACK(GET_SIZE(HDRP(next)), PRI_FREE, GET_ALLOC(HDRP(next))));
-		//PUT(FTRP(next), PACK(GET_SIZE(HDRP(next)), PRI_FREE, GET_ALLOC(HDRP(next))));
-
-	}
-	else{
-		PUT(HDRP(newptr), PACK(fit_size, GET_PRI_ALLOC(HDRP(newptr)), ALLOCATED));
-		// the header of next block records the status of current block. 
-		// need to modify it
-		PUT(HDRP(NEXT_BLKP(newptr)), PACK(GET_SIZE(HDRP(NEXT_BLKP(newptr))), PRI_ALLOCATED, GET_ALLOC(HDRP(NEXT_BLKP(newptr)))));
-		//PUT(FTRP(NEXT_BLKP(bp)), PACK(GET_SIZE(HDRP(NEXT_BLKP(bp))), PRI_ALLOCATED, GET_ALLOC(HDRP(NEXT_BLKP(bp)))));
-	}	
-	//printf("%d.mm_realloc: new ptr is %x\n", count++, newptr);
-	checker("mm_realloc");
-	//if (!memcmp(newptr, oldptr, copySize)
-	//	printf("didn't preserve");
-    	return newptr;
+	memmove(tmp_ptr, old_ptr, copy_size);
+	mm_free(old_ptr);
+	new_ptr = mm_malloc(size);
+	memmove(new_ptr, tmp_ptr, copy_size);
+	mm_free(tmp_ptr);	
+    	return new_ptr;
 }
 
 
@@ -441,7 +354,6 @@ static void place(void *bp, size_t asize)
 	// if need to split the block:
 	//	set the header and footer of the new split block
 	//	put it into the proper link using LIFO
-//	printf("into place\n");
 	int origin_size = 0;
 	origin_size = GET_SIZE(HDRP(bp));
 
